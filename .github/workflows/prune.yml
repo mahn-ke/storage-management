@@ -1,0 +1,63 @@
+name: Prune container, images and wait for volumes
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Every day at midnight
+
+concurrency:
+  group: cleanup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    runs-on: hetzner2
+    outputs:
+      volumes: ${{ steps.check-volumes.outputs.volumes }}
+      has-volumes: ${{ steps.check-volumes.outputs.has-volumes }}
+    steps:
+      - run: docker system prune -a --force
+
+      - name: Check for dangling volumes
+        id: check-volumes
+        shell: pwsh
+        run: |
+          $volumes = docker volume ls -f dangling=true -q
+          if ($null -eq $volumes) { $volumes = "" }
+          echo "volumes<<EOF" >> "$env:GITHUB_OUTPUT"
+          echo "$volumes" >> "$env:GITHUB_OUTPUT"
+          echo "EOF" >> "$env:GITHUB_OUTPUT"
+          echo "has-volumes=$($volumes.Trim() -ne '')".ToLower() >> "$env:GITHUB_OUTPUT"
+          echo "volumes<<EOF"
+          echo "$volumes"
+          echo "EOF"
+          echo "has-volumes=$($volumes.Trim() -ne '')".ToLower()
+          
+  cleanup-volumes:
+    runs-on: hetzner2
+    environment: production
+    needs: cleanup
+    if: needs.cleanup.outputs.has-volumes == 'true'
+    steps:
+      - name: Debug cleanup outputs
+        run: |
+          echo "Volumes: ${{ needs.cleanup.outputs.volumes }}"
+          echo "Has Volumes: ${{ needs.cleanup.outputs.has-volumes }}"
+
+      - name: Remove dangling volumes
+        shell: pwsh
+        run: |
+          $volumes = @"
+          ${{ needs.cleanup.outputs.volumes }}
+          "@.Trim()
+          $volList = $volumes -split "`n"
+          foreach ($vol in $volList) {
+            if ($vol.Trim() -eq "") {
+              continue
+            }
+            echo "Removing dangling volume: $vol"
+            docker volume rm $vol
+          }
+          
