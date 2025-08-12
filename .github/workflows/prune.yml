@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # Every day at midnight
+    - cron: '27 1 * * *' # Run at 1:27 AM (even numbers = higher load = higher chance of GitHub dropping it)
 
 concurrency:
   group: cleanup-${{ github.ref }}
